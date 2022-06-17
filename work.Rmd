@@ -1,0 +1,376 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(plotly)
+```
+
+```{r}
+full <- read_csv("owid-covid-data.csv")
+```
+
+
+```{r}
+df <- full %>% filter(location == 'Sri Lanka') %>% dplyr::select(date = date, cases = new_cases)
+vaccination_init <- as.Date('2021-01-28')
+
+before_vaccine <- df %>% filter(date <vaccination_init)
+after_vaccine <- df %>% filter(date  > vaccination_init)
+
+df %>% mutate(total = cumsum(cases)) %>%  ggplot(aes(date, total)) + geom_line()  + scale_y_log10(labels = comma)
+
+first_wave_end <- as.Date('2020-10-04')
+
+plt2 <- df %>% filter(date < first_wave_end) %>% mutate(total = cumsum(cases)) %>%  ggplot(aes(date, total)) + geom_line()+ 
+   geom_smooth(method = 'gam')
+df_observed <- df %>% dplyr::filter(date < first_wave_end) %>% mutate(total = cumsum(cases)) %>% dplyr::select(-cases)
+smoothed <- ggplot_build(plt2)$data[[2]]$y
+
+plt2
+```
+
+```{r}
+d <- final(s = 23,
+           rad = 0.1,
+           size = 40^2,
+           pop = 1000,
+           vaccination_frac = 0.0,
+           thresh = 0.25,
+           spread = 0.04,
+           infective_period = 4,
+           q_eff = 0.4,
+           q_inf = 0.7,
+           sc_time = 7,
+           graph_span = 0.2,
+           sc_pop = 1,
+           vaccination_begin = 0,
+           quarentine_begin = 0,
+           filename = 'v_0_q_0_',
+           timeline = F,
+           snapshot = F,vaccine_efficacy = 0.8, fps = 2)
+
+total_predicted_plt_bld <- ggplot_build(d$total_plt)
+
+total_predicted_data <- total_predicted_plt_bld$data[[2]]$y
+
+ss <- function(scalar, observed = df_observed, predicted = total_predicted_data, date_vector = as.Date(floor(seq(as.numeric(before_vaccine$date[1]), as.numeric(first_wave_end), len = length(total_predicted_data))),origin = "1970-01-01")) {
+   
+   df_predicted <- data.frame(date = date_vector, total_predicted = predicted * scalar)
+   
+   df_predicted <-  df_predicted %>% left_join(observed) %>% mutate(error = (total - total_predicted)^2)
+   mean(df_predicted$error, na.rm = T)
+   
+}
+
+tune_grid <- seq(3,4, len = 50)
+errors <- sapply(tune_grid, ss)
+errors %>% plot
+best <- tune_grid[which.min(errors)]
+```
+
+
+```{r}
+total_predicted_plt_bld <- ggplot_build(d$total_plt)
+total_predicted_data <- total_predicted_plt_bld$data[[2]]$y*best
+df_predicted <- data.frame(date = as.Date(floor(seq(as.numeric(before_vaccine$date[1]), as.numeric(first_wave_end), len = length(total_predicted_data))),origin = "1970-01-01"), total_predicted = total_predicted_data)
+df_predicted %>% left_join(df_observed) %>% pivot_longer(2:3, names_to = 'nm', values_to = 'val') %>% ggplot(aes(date, val, linetype = nm)) + geom_line()
+
+```
+
+Vaccination done after 2nd wave
+```{r}
+second_wave_end <- as.Date('2021-04-26')
+full %>% filter(location == 'Sri Lanka') %>% dplyr::select(date = date, cases = new_cases, vaccines = people_fully_vaccinated_per_hundred) %>% ggplot(aes(date, vaccines)) + geom_line() + geom_vline(xintercept = first_wave_end) + geom_vline(xintercept = second_wave_end)
+full %>% filter(location == 'Sri Lanka') %>% dplyr::select(date = date, cases = new_cases, vaccines = people_fully_vaccinated_per_hundred) %>% dplyr::filter(date > second_wave_end) %>% mutate(vaccines = vaccines/100) %>%  ggplot(aes(date, vaccines)) +  geom_area(alpha = 0.4)  + scale_y_continuous(labels = scales::percent) + ylab('Vaccination coverage')
+```
+
+Analyzing the third wave isolated
+```{r}
+df_after_vaccines <- full %>% filter(location == 'Sri Lanka') %>% dplyr::select(date = date, cases = new_cases, vaccines = people_fully_vaccinated_per_hundred) %>%  dplyr::filter(date > second_wave_end) %>% mutate(total = cumsum(cases))
+
+df_after_vaccines %>% ggplot(aes(date, total)) + geom_line() + ylab('Total number of cases') + scale_y_continuous(labels = scales::comma)
+
+#vaccines trend
+plt_v <- df_after_vaccines %>% ggplot(aes(date, vaccines)) + geom_point() + geom_smooth(method = 'gam', se = F)
+
+plt_v_build <- ggplot_build(plt_v)
+
+```
+
+```{r}
+
+#Setting up timeline
+mobility <- data.frame(time = c(0:80), val = 0.25)
+#vaccine <- data.frame(time = 1:80, val = plt_v_build$data[[2]]$y/100)
+vaccine <- data.frame(time = 0:80, val = 0.5)
+radius <- data.frame(time = 0:80, val = 0.1)
+
+d <- final(s = 23,
+           rad = 0.1,
+           size = 40^2,
+           pop = 1000,
+           vaccination_frac = 0.0,
+           vaccine_efficacy = 0.8,
+           thresh = 0.25,
+           spread = 0.04,
+           infective_period = 4,
+           q_eff = 0.4,
+           q_inf = 0.7,
+           sc_time = 1,
+           graph_span = 0.2,
+           sc_pop = 1,
+           vaccination_begin = 0,
+           quarentine_begin = 0,
+           filename = 'v_0_q_0_8',
+           timeline = F,
+           snapshot = F, fps = 2, animate = F
+)
+
+df <- full %>% filter(location == 'Sri Lanka') %>% dplyr::select(date = date, cases = new_cases)
+
+df_observed <- df %>% dplyr::filter(date > second_wave_end) %>% mutate(total = cumsum(cases)) %>% dplyr::select(-cases)
+
+total_predicted_plt_bld <- ggplot_build(d$total_plt)
+
+total_predicted_data <- total_predicted_plt_bld$data[[2]]$y
+total_predicted_data <-  ifelse(total_predicted_data < 0, 0, total_predicted_data)
+
+tune_grid <- seq(630,680, len = 50)
+d_v <- as.Date(floor(seq(as.numeric(df_after_vaccines$date[1]), as.numeric(df_after_vaccines$date[nrow(df_after_vaccines)]), len = length(total_predicted_data))),origin = "1970-01-01")
+errors <- sapply(tune_grid, ss, observed = df_observed, predicted = total_predicted_data, date_vector = as.Date(floor(seq(as.numeric(df_after_vaccines$date[1]), as.numeric(df_after_vaccines$date[nrow(df_after_vaccines)]), len = length(total_predicted_data))),origin = "1970-01-01"))
+errors %>% plot
+best <- tune_grid[which.min(errors)]
+
+total_predicted_data <- total_predicted_plt_bld$data[[2]]$y*best
+df_predicted <- data.frame(date = d_v, total_predicted = total_predicted_data)
+df_predicted %>% left_join(df_observed) %>% pivot_longer(2:3, names_to = 'nm', values_to = 'val') %>% ggplot(aes(date, val, linetype = nm)) + geom_line()
+
+```
+
+Modelling for vaccination
+
+Extracting vaccination trend
+```{r}
+vac_plt <- df_after_vaccines %>% mutate(vac = vaccines/100) %>%  ggplot(aes(date, vac)) + geom_smooth(method = 'gam', se = F)
+vacs <- quantile(ifelse(ggplot_build(vac_plt)$data[[1]]$y > 0, ggplot_build(vac_plt)$data[[1]]$y, 0), seq(0,1, len = 24))
+```
+
+
+```{r}
+wrapper <- function(eff = 0.42) {
+   #Setting up timeline
+   mobility <- data.frame(time = c(0:23), val = 0.25)
+   #vaccine <- data.frame(time = 1:80, val = plt_v_build$data[[2]]$y/100)
+   vaccine <<- data.frame(time = 0:23, val = vacs)
+   radius <- data.frame(time = 0:23, val = 0.1)
+   
+   d <- final(s = 23,
+              rad = 0.1,
+              size = 40^2,
+              pop = 1000,
+              vaccination_frac = 0.0,
+              vaccine_efficacy = eff,
+              thresh = 0.25,
+              spread = 0.04,
+              infective_period = 4,
+              q_eff = 0.4,
+              q_inf = 0.7,
+              sc_time = 1,
+              graph_span = 0.2,
+              sc_pop = 1,
+              vaccination_begin = 0,
+              quarentine_begin = 0,
+              filename = 'v_0_q_0_8',
+              timeline = T,
+              snapshot = F, 
+              fps = 2, 
+              animate = F, 
+              dark_theme = T
+   )
+   
+   df <- full %>% filter(location == 'Sri Lanka') %>% dplyr::select(date = date, cases = new_cases)
+   
+   df_observed <- df %>% dplyr::filter(date > second_wave_end) %>% mutate(total = cumsum(cases)) %>% dplyr::select(-cases)
+   
+   total_predicted_plt_bld <- ggplot_build(d$total_plt)
+   
+   total_predicted_data <- total_predicted_plt_bld$data[[2]]$y
+   total_predicted_data <-  ifelse(total_predicted_data < 0, 0, total_predicted_data)
+   
+   tune_estimate <- max(df_observed$total)/max(total_predicted_data)
+   tune_grid <- seq(tune_estimate * 0.8, tune_estimate * 1.2, len = 50)
+   d_v <- as.Date(floor(seq(as.numeric(df_after_vaccines$date[1]), as.numeric(df_after_vaccines$date[nrow(df_after_vaccines)]), len = length(total_predicted_data))),origin = "1970-01-01")
+   errors <- sapply(tune_grid, ss, observed = df_observed, predicted = total_predicted_data, date_vector = as.Date(floor(seq(as.numeric(df_after_vaccines$date[1]), as.numeric(df_after_vaccines$date[nrow(df_after_vaccines)]), len = length(total_predicted_data))),origin = "1970-01-01"))
+   errors %>% plot
+   best <- tune_grid[which.min(errors)]
+   
+   total_predicted_data <- total_predicted_plt_bld$data[[2]]$y*best
+   df_predicted <- data.frame(date = d_v, total_predicted = total_predicted_data)
+   df_final <<- df_predicted %>% left_join(df_observed)
+   final_plt <- df_predicted %>% left_join(df_observed) %>% pivot_longer(2:3, names_to = 'nm', values_to = 'val') %>% ggplot(aes(date, val, linetype = nm)) + geom_line()
+   
+   final_plt
+   min(errors)  
+   return(list(plt = final_plt, error = min(errors)))
+}
+
+```
+
+
+```{r}
+tester <- seq(0.2, 0.6, len = 30)
+#resu <- lapply(tester, wrapper)
+
+s <- numeric()
+for (i in 1:length(resu)) {s
+   s[i] <- resu[[i]]$error
+}
+data.frame(eff = tester, error = s) %>% ggplot(aes(eff, error)) + geom_line()
+
+best_eff <- tester[which.min(s)]
+
+#Setting up timeline
+mobility <- data.frame(time = c(0:23), val = 0.25)
+#vaccine <- data.frame(time = 1:80, val = plt_v_build$data[[2]]$y/100)
+vaccine <- data.frame(time = 0:23, val = vacs)
+radius <- data.frame(time = 0:23, val = 0.1)
+
+d <- final(s = 23,
+           rad = 0.1,
+           size = 40^2,
+           pop = 1000,
+           vaccination_frac = 0.0,
+           vaccine_efficacy = best_eff,
+           thresh = 0.25,
+           spread = 0.04,
+           infective_period = 4,
+           q_eff = 0.4,
+           q_inf = 0.7,
+           sc_time = 1,
+           graph_span = 0.2,
+           sc_pop = 1,
+           vaccination_begin = 0,
+           quarentine_begin = 0,
+           filename = 'v_0_q_0_8',
+           timeline = T,
+           snapshot = F, 
+           fps = 2, 
+           animate = F, 
+           dark_theme = T
+)
+
+df <- full %>% filter(location == 'Sri Lanka') %>% dplyr::select(date = date, cases = new_cases)
+
+df_observed <- df %>% dplyr::filter(date > second_wave_end) %>% mutate(total = cumsum(cases)) %>% dplyr::select(-cases)
+
+total_predicted_plt_bld <- ggplot_build(d$total_plt)
+
+total_predicted_data <- total_predicted_plt_bld$data[[2]]$y
+total_predicted_data <-  ifelse(total_predicted_data < 0, 0, total_predicted_data)
+
+tune_estimate <- max(df_observed$total)/max(total_predicted_data)
+tune_grid <- seq(tune_estimate * 0.8, tune_estimate * 1.2, len = 50)
+d_v <- as.Date(floor(seq(as.numeric(df_after_vaccines$date[1]), as.numeric(df_after_vaccines$date[nrow(df_after_vaccines)]), len = length(total_predicted_data))),origin = "1970-01-01")
+errors <- sapply(tune_grid, ss, observed = df_observed, predicted = total_predicted_data, date_vector = as.Date(floor(seq(as.numeric(df_after_vaccines$date[1]), as.numeric(df_after_vaccines$date[nrow(df_after_vaccines)]), len = length(total_predicted_data))),origin = "1970-01-01"))
+errors %>% plot
+best_sc <- tune_grid[which.min(errors)]
+
+total_predicted_data <- total_predicted_plt_bld$data[[2]]$y*best_sc
+df_predicted <- data.frame(date = d_v, total_predicted = total_predicted_data)
+df_final <<- df_predicted %>% left_join(df_observed)
+final_plt <- df_predicted %>% left_join(df_observed) %>% pivot_longer(2:3, names_to = 'nm', values_to = 'val') %>% ggplot(aes(date, val, linetype = nm)) + geom_line(show.legend = F) + scale_y_continuous(labels = comma) + ylab('Total number of cases')
+
+final_plt
+min(errors)  
+
+```
+
+With different efficacies
+
+```{r}
+estimate <- function(eff = best_eff, vc = vaccine) {
+   
+   vaccine <<- vc
+   
+   d <- final(s = 23,
+              rad = 0.1,
+              size = 40^2,
+              pop = 1000,
+              vaccination_frac = 0.0,
+              vaccine_efficacy = eff,
+              thresh = 0.25,
+              spread = 0.04,
+              infective_period = 4,
+              q_eff = 0.4,
+              q_inf = 0.7,
+              sc_time = 1,
+              graph_span = 0.2,
+              sc_pop = 1,
+              vaccination_begin = 0,
+              quarentine_begin = 0,
+              filename = 'v_0_q_0_8',
+              timeline = T,
+              snapshot = F, 
+              fps = 2, 
+              animate = F, 
+              dark_theme = T
+   )
+   
+   
+   total_predicted_plt_bld <- ggplot_build(d$total_plt)
+   
+   total_predicted_data <- total_predicted_plt_bld$data[[2]]$y
+   total_predicted_data <-  ifelse(total_predicted_data < 0, 0, total_predicted_data)
+   
+   total_predicted_plt_bld$data[[2]]$y*best_sc
+}
+```
+
+Different efficacies
+```{r}
+library(directlabels)
+efficacies <- c(0, 0.2, 0.8, 1, best_eff)
+estimated_values <- as.data.frame(sapply(efficacies, estimate, vc = vaccine))
+estimates_different_efficacies <- estimated_values
+names(estimates_different_efficacies) <- c(0, 0.25, 0.8, 1, round(best_eff, digits = 2))
+data.frame(date = d_v) %>% 
+   cbind.data.frame(estimates_different_efficacies) %>% 
+   left_join(df_observed) %>%  
+   pivot_longer(cols = 2:6, names_to = 'nm', values_to = 'val') %>% 
+   ggplot(aes(date, val, linetype = nm)) + 
+   geom_line(show.legend = F) + 
+   geom_dl(aes(label = nm), method = list(dl.combine("last.points")), cex = 0.8) +
+   ylab('Total cases') +
+   scale_y_continuous(labels = comma) + 
+   geom_line(aes(y = total), col = 'grey', alpha = 0.4, show.legend = F)
+```
+
+Different coverages
+```{r}
+vc_0 <- data.frame(time = 0:23, val =  seq(0,0.1, len = 24))
+vc_1 <- data.frame(time = 0:23, val =  seq(0,0.25, len = 24))
+vc_2 <- data.frame(time = 0:23, val =  seq(0,0.4, len = 24))
+vc_3 <- data.frame(time = 0:23, val =  seq(0,0.9, len = 24))
+
+
+vcs <- list(vc_0 = vc_0, vc_20 = vc_1, vc_50 = vc_2, vc_90 = vc_3)
+estimated_values_coverages <- as.data.frame(sapply(vcs, estimate, eff = best_eff))
+names(estimated_values_coverages) <- c(0.1, 0.25, 0.4, 0.9)
+data.frame(date = d_v) %>% 
+    cbind.data.frame(estimated_values_coverages) %>% 
+    left_join(df_observed) %>%  
+    pivot_longer(cols = 2:5, names_to = 'nm', values_to = 'val') %>% 
+    ggplot(aes(date, val, linetype = nm)) + 
+    geom_line(show.legend = F) +
+    geom_dl(aes(label = nm), method = list(dl.combine("last.points")), cex = 0.8) +
+    ylab('Total cases') +
+    scale_y_continuous(labels = comma) + 
+    geom_line(aes(y = total), col = 'grey', alpha = 0.4, show.legend = F)
+```
+

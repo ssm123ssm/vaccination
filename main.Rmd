@@ -1,0 +1,107 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+```
+
+
+Payoff function
+```{r}
+
+R0 <- 2
+
+#pi is the probability (0~1) of being infected in the steady state with vaccination fraction of p.
+pi <- function(p = 0.5, R0 = 2) {
+  val = 1 - (1/(R0 * (1-p)))
+  return(ifelse(val < 0, 0, ifelse(p >= P_crit(R0), 0, val)))
+}
+
+#r is the probability ratio of probability of getting vaccine related adverse outcome and disease related adverse outcome. r < 0 means percived risk of vaccination is lesser than that of disease itself
+payoff <- function(P = 0.5, p = 0.5, r = 0.2, R0 = 2) {
+  -(r*P) - (pi(p, R0)*(1-P))
+}
+
+#A sigma proportion is vaccinated with P probability and the rest with Q probability.
+payoff_gain <- function(P, Q, sigma, rp = 0.2, rq = 0.2 ,R0 = 2) {
+  
+  #p is the overall proportion of vaccinated people
+  p = sigma*P + ((1-sigma)*Q)
+  
+  EP = payoff(P = P, p = p, r = rp, R0 = R0)
+  EQ = payoff(P = Q, p = p, r = rq,  R0 = R0)
+  
+  EP - EQ
+}
+
+#NE probability. If r > Pi(0), no one would vaccinate and csne_p will be 0.
+csne_P <- function(r, R0 = 2) {
+  val = 1 - (1/(R0*(1-r)))
+  return(ifelse(val < 0, 0, ifelse(r >= pi(p = 0, R0), 0, val)))
+}
+
+P_crit <- function(R0 = 2) {
+  p = 0
+  if (R0 > 1){
+    p = 1 - (1/R0)
+  }
+  p
+}
+
+csne_payoff <- function(r, R0) {
+  P = csne_P(r = r, R0 = R0)
+  p = P
+  payoff(P,p,r,R0)
+}
+#As long as the percieved risk r = 0 and p < Pcritic, expected individual payoff ifcreases with P
+```
+
+If P is a Nash equilibrium, and everyone is currently playing P, then no one should change strategy. If P is convergently stable, then regardless of what strategy is most common in the population, individuals should start to play strategies closer to P, and ultimately adopt P.
+
+```{r}
+R0 <- 2
+sigma <- 0.6
+r <- 0.1
+P <- seq(0,1, 0.01)
+Q <- seq(0,1, by = 0.01)
+ggplotly(expand_grid(P,Q) %>% mutate(gain = payoff_gain(P = P, Q = Q, sigma = sigma, rp = r, rq = r, R0 = R0)) %>% ggplot(aes(P, gain, col = Q)) + geom_line(aes(group = Q)) + geom_hline(yintercept = 0) + geom_vline(xintercept = csne_P(r, R0)))
+```
+
+
+```{r}
+theme_set(theme_bw())
+rs <- seq(0,1.5,by=0.01)
+R0s <- c(2,5,10,20)
+df <- expand.grid(rs,R0s) %>% rename(r = Var1, R0 = Var2)
+df %>% mutate(p_star = csne_P(r = r, R0 = R0)) %>% ggplot(aes(r, p_star, group = R0)) + geom_line(aes(linetype = as.factor(R0)))
+```
+
+```{r}
+rs <- seq(0,2,by=0.01)
+R0s <- c(2,5,10, 20)
+df <- expand.grid(rs,R0s) %>% rename(r = Var1, R0 = Var2)
+df %>% mutate(p_fixed = csne_P(r = 1, R0 = R0), p_exp = csne_P(r = r, R0 = R0), delta = p_exp - p_fixed) %>% ggplot(aes(r, delta, lineltye = as.factor(R0))) + geom_line(aes(linetype = as.factor(R0)))
+```
+
+
+Analysis of vaccine scares: payoff gain, ΔE, and change in vaccine uptake, ΔP, after a shift in risk perception from r < π0 to r′ (see Table 1). For this figure, r = 0.1 and the proportion of individuals currently adopting the new CSNE is ε = 0 (corresponding to the start of a vaccine scare); the shapes of the curves are qualitatively similar for other values of r and ε.
+```{r}
+rs <- seq(0,1.5,by=0.01)
+R0s <- c(2,5,10, 20)
+sigma = 0
+old_risk = .1
+
+df <- expand.grid(rs,R0s) %>% rename(r = Var1, R0 = Var2)
+df %>% 
+    mutate(p_fixed = csne_P(r = old_risk, R0 = R0), 
+           p_exp = csne_P(r = r, R0 = R0), 
+           delta = p_exp - p_fixed, 
+           e_gain = payoff_gain(P = p_exp, Q = p_fixed, sigma = sigma, rp = r, rq = r, R0 = R0)) %>% pivot_longer(., cols = c(delta, e_gain), names_to = 'nam', values_to = 'vals') %>% 
+    ggplot(aes(r, vals, lineltye = as.factor(R0), col = nam)) + 
+    geom_line(aes(linetype = as.factor(-R0)))
+```
+
+

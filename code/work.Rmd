@@ -9,6 +9,7 @@ library(tidyverse)
 library(readr)
 library(lubridate)
 library(plotly)
+library(directlabels)
 ```
 
 ```{r}
@@ -23,7 +24,7 @@ vaccination_init <- as.Date('2021-01-28')
 before_vaccine <- df %>% filter(date <vaccination_init)
 after_vaccine <- df %>% filter(date  > vaccination_init)
 
-df %>% mutate(total = cumsum(cases)) %>%  ggplot(aes(date, total)) + geom_line()  + scale_y_log10(labels = comma)
+df %>% mutate(total = cumsum(cases)) %>%  ggplot(aes(date, total)) + geom_line()  + scale_y_log10(labels = scales::comma)
 
 first_wave_end <- as.Date('2020-10-04')
 
@@ -334,7 +335,7 @@ estimate <- function(eff = best_eff, vc = vaccine) {
 
 Different efficacies
 ```{r}
-library(directlabels)
+
 efficacies <- c(0, 0.2, 0.8, 1, best_eff)
 estimated_values <- as.data.frame(sapply(efficacies, estimate, vc = vaccine))
 estimates_different_efficacies <- estimated_values
